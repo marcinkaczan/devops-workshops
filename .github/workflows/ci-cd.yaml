@@ -8,6 +8,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    strategy:
+      matrix:
+        version: [10, 12, 14]
+
     defaults:
       run:
         working-directory: 01-ci-lab
@@ -19,7 +23,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.${{ matrix.version }}"
 
       - name: Install dependencies
         run: |
