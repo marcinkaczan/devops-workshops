@@ -52,6 +52,11 @@ jobs:
       id-token: write
       contents: read
 
+    env:
+      AWS_REGION: us-east-1
+      LAMBDA_FUNCTION_NAME: devops-workshops-ci-lab
+      LAMBDA_EXECUTION_ROLE_ARN: arn:aws:iam::361450365317:role/devops-workshops-lambda-execution-role
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -60,9 +65,62 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v6.1.2
         with:
           role-to-assume: arn:aws:iam::361450365317:role/GitHubActionsDeployRole
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
           role-session-name: GitHubActionsDeploy
 
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
+
+      - name: Build Lambda ZIP package
+        run: |
+          cd 01-ci-lab
+          zip -r ../function.zip app lambda_function.py
+
+      - name: Create or update Lambda function
+        run: |
+          if aws lambda get-function \
+            --function-name "$LAMBDA_FUNCTION_NAME" \
+            --region "$AWS_REGION" > /dev/null 2>&1; then
+
+            echo "Lambda istnieje - aktualizuję kod"
+
+            aws lambda update-function-code \
+              --function-name "$LAMBDA_FUNCTION_NAME" \
+              --zip-file fileb://function.zip \
+              --region "$AWS_REGION"
+
+            aws lambda wait function-updated-v2 \
+              --function-name "$LAMBDA_FUNCTION_NAME" \
+              --region "$AWS_REGION"
+
+          else
+
+            echo "Lambda nie istnieje - tworzę funkcję"
+
+            aws lambda create-function \
+              --function-name "$LAMBDA_FUNCTION_NAME" \
+              --runtime python3.12 \
+              --role "$LAMBDA_EXECUTION_ROLE_ARN" \
+              --handler lambda_function.lambda_handler \
+              --zip-file fileb://function.zip \
+              --timeout 10 \
+              --memory-size 128 \
+              --region "$AWS_REGION"
+
+            aws lambda wait function-active-v2 \
+              --function-name "$LAMBDA_FUNCTION_NAME" \
+              --region "$AWS_REGION"
+
+          fi
+
+      - name: Invoke Lambda test
+        run: |
+          aws lambda invoke \
+            --function-name "$LAMBDA_FUNCTION_NAME" \
+            --payload '{"a": 10, "b": 2}' \
+            --cli-binary-format raw-in-base64-out \
+            --region "$AWS_REGION" \
+            response.json
+
+          cat response.json
